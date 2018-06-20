@@ -49,13 +49,18 @@ MPU6050 mpu;
 // on a remote host such as Processing or something though)
 #define OUTPUT_READABLE_QUATERNION      //실제 w x y z를 보기위한 것.
 
+// uncomment "OUTPUT_READABLE_EULER" if you want to see Euler angles
+// (in degrees) calculated from the quaternions coming from the FIFO.
+// Note that Euler angles suffer from gimbal lock (for more info, see
+// http://en.wikipedia.org/wiki/Gimbal_lock)
+#define OUTPUT_READABLE_EULER     //Euler각을 보고 싶을때
 
 // uncomment "OUTPUT_READABLE_YAWPITCHROLL" if you want to see the yaw/
 // pitch/roll angles (in degrees) calculated from the quaternions coming
 // from the FIFO. Note this also requires gravity vector calculations.
 // Also note that yaw/pitch/roll angles suffer from gimbal lock (for
 // more info, see: http://en.wikipedia.org/wiki/Gimbal_lock)
-#define OUTPUT_READABLE_YAWPITCHROLL      //yaw pitch roll을 보고싶을때
+//#define OUTPUT_READABLE_YAWPITCHROLL      //yaw pitch roll을 보고싶을때
 
 bool blinkState = false;
 
@@ -79,8 +84,6 @@ float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gra
 // packet structure for InvenSense teapot demo
 uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
 
-
-
 // ================================================================
 // ===               INTERRUPT DETECTION ROUTINE                ===
 // ================================================================
@@ -97,8 +100,6 @@ void dmpDataReady() {
 // ================================================================
 
 void setup() {
-  pinMode(13 , OUTPUT ); //자이로
-  pinMode(12 , OUTPUT );
   pinMode( vibe1 , OUTPUT );
   pinMode( vibe2 , OUTPUT);
   pinMode( MAGNET1 , INPUT);
@@ -106,7 +107,7 @@ void setup() {
   pinMode( MAGNET3 , INPUT);
   pinMode( MAGNET4 , INPUT);
   pinMode( MAGNET5 , INPUT);
-
+// 101713pyz
     // join I2C bus (I2Cdev library doesn't do this automatically)
     #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
         Wire.begin();
@@ -182,16 +183,21 @@ void setup() {
 
 int state_13=0;
 int state_12=0;
-char vibrationcommand;
-boolean finish=false;
+int i;
+char vibrationcommand[3];
+boolean finish=true;
 unsigned long preTime = 0;
+int continuation_time = 150;
+
+
 void timecheck()
 {
 unsigned long curTime = millis(); // 현재 시각은?
 // (현재시각 > 이전시각+1초)
-if(curTime > preTime+1000) { // 1초 지났니?
+if(curTime > preTime + continuation_time || finish == true ) { // 1초 지났니?
 finish=true;
-curTime=0;
+analogWrite( vibe1, 0);
+analogWrite( vibe2, 0);
 }
 }
 // ================================================================
@@ -199,6 +205,8 @@ curTime=0;
 // ================================================================
 
 void loop() {
+
+  timecheck();
 
     // if programming failed, don't try to do anything
     if (!dmpReady) return;
@@ -241,17 +249,35 @@ void loop() {
         // (this lets us immediately read more without waiting for an interrupt)
         fifoCount -= packetSize;
 
+        #ifdef OUTPUT_READABLE_EULER
+            // display Euler angles in degrees
+            mpu.dmpGetQuaternion(&q, fifoBuffer);
+            mpu.dmpGetEuler(euler, &q);
+            Serial.print("ANX");
+            Serial.println(euler[0] * 180/M_PI);
+            Serial.flush();
+            Serial.print("ANY");
+            Serial.println(euler[1] * 180/M_PI);
+            Serial.flush();
+            Serial.print("ANZ");
+            Serial.println(euler[2] * 180/M_PI);
+            Serial.flush();
+        #endif
+
         #ifdef OUTPUT_READABLE_QUATERNION
             // display quaternion values in easy matrix form: w x y z
             mpu.dmpGetQuaternion(&q, fifoBuffer);
             Serial.print("POX");
             Serial.println(q.w);
+            Serial.flush();
 
             Serial.print("POY");
             Serial.println(q.x);
+            Serial.flush();
 
             Serial.print("POZ");
             Serial.println(q.z);
+            Serial.flush();
             /*
             Serial.print("quat\t");
             Serial.print(q.w);
@@ -264,7 +290,7 @@ void loop() {
             */
         #endif
 
-        #ifdef OUTPUT_READABLE_YAWPITCHROLL
+     /*   #ifdef OUTPUT_READABLE_YAWPITCHROLL
             // display Euler angles in degrees
             mpu.dmpGetQuaternion(&q, fifoBuffer);
             mpu.dmpGetGravity(&gravity, &q);
@@ -284,56 +310,43 @@ void loop() {
             Serial.print(int(ypr[1] * 180/M_PI));
             Serial.print("\t");
             Serial.println(int(ypr[2] * 180/M_PI));
-            */
+            
         #endif
         // blink LED to indicate activity
         blinkState = !blinkState;
+        */
     }
-if(!Serial.available())
-{
-  unsigned long curTime = millis(); // 현재 시각은?
-// (현재시각 > 이전시각+1초)
 
-if(curTime > preTime+1000) { // 1초 지났니?
-preTime = curTime;
-    analogWrite( vibe1, 0);
-    analogWrite( vibe2, 0);
-  }
-}
       if(Serial.available()>0)
- {
-      vibrationcommand=Serial.read();
-    if(vibrationcommand!='1'||vibrationcommand!='2')
-        {
-           analogWrite( vibe1, 0);
-            analogWrite( vibe2, 0);
-         }
-    if(vibrationcommand='1')
+  {
+  for(i=0;i<2;i++)
+  {
+     vibrationcommand[i] =Serial.read();
+  }
+    if(vibrationcommand[1]='1')
      {
+      preTime = millis();
+      finish = false;
      analogWrite( vibe1, 100);
       analogWrite( vibe2, 100);
     //총쏘기
-    timecheck();
-       if(finish)
-       {
-       analogWrite( vibe1, 0);
-        analogWrite( vibe2, 0);
-        finish=false;
-      }
+
      }
-    if(vibrationcommand='2')
+    if(vibrationcommand[1]='2')
     {
     //특수공격
     //센 진동
-      analogWrite( vibe1, 300);
+      preTime = millis();
+      finish = false;
+      analogWrite( vibe1, 500);
       analogWrite( vibe2, 300);
-       timecheck();
-     if(finish)
-        {
-          analogWrite( vibe1, 0);
-         analogWrite( vibe2, 0);
-         finish=false;
-       }
      }
   }
+   Serial.print("FIN");
+   Serial.print(digitalRead(MAGNET1));
+   Serial.print(digitalRead(MAGNET2));
+   Serial.print(digitalRead(MAGNET3));
+   Serial.print(digitalRead(MAGNET4));   
+   Serial.println(digitalRead(MAGNET5));
+  
  }
